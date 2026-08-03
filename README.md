@@ -127,7 +127,7 @@ they never fight drag/resize.
 | **Calendar** | page months · 3 responsive sizes |
 | **Moon** | scrub the phase ±1 day |
 | **Tokens** | switch range (7 days / 1 month / 6 months) · line ↔ bars chart · show/hide totals · hover a point for an animated tooltip |
-| **Host** | flip meters ↔ numeric detail (load, mem, disk, proc) |
+| **Host** | cycle meters ↔ numeric detail ↔ live graphs (four rolling one-minute sparklines: cpu, ram, load, proc) |
 | **Gateway** | hover expands read-only detail (pid, health, config) |
 | **Sessions** | paginate recent sessions |
 | **Cron** | paginate upcoming jobs |

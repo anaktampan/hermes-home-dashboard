@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .DS_Store
 *.tsbuildinfo
+
+# per-install user state (widget layout persisted by dashboard/plugin_api.py)
+layout.json

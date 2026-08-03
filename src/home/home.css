@@ -400,6 +400,44 @@
 }
 .home-area rect { cursor: default; }
 
+/* Host graphs view: four live sparklines (cpu / ram / load / proc) in a 2×2
+ * grid over a rolling one-minute window. Fills the widget below the header
+ * (same absolute pattern as the canvas widgets); cells reuse .home-area but
+ * stretch to their cell height instead of the tokens widget's fixed band. */
+.host-sparks {
+  position: absolute;
+  inset: 30px 12px 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 4px 12px;
+  min-height: 0;
+}
+.host-spark {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.host-spark-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: max(8px, min(3.2cqw, 6cqh));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.host-spark-head .val {
+  font-variant-numeric: tabular-nums;
+  color: var(--home-accent);
+}
+.host-spark .home-area {
+  flex: 1;
+  height: auto;
+  min-height: 12px;
+  margin: 2px 0 0;
+}
+
 /* Small vertical divider between the range arrows and the toggles. */
 .tok-div {
   width: 1px;

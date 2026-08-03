@@ -1,10 +1,14 @@
+import { useEffect, useRef, useState } from "react";
 import type { SystemStats } from "../../api-types";
 import { HoverArrows } from "./HoverArrows";
+import {
+  BUFFER_CAP, HOST_SIGNALS, HOST_VIEWS, SAMPLE_MS,
+  areaPath, coerceHostView, pushSample, seriesOf, seriesPath, signalMax, toSample,
+  type HostSample, type HostView,
+} from "./hostSeries";
 
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
-const VIEWS = ["meters", "detail"] as const;
-type View = (typeof VIEWS)[number];
 
 interface Props {
   system: SystemStats | null;
@@ -39,22 +43,90 @@ function formatUptime(seconds: number): string {
   return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((seconds % 3_600) / 60)}m`;
 }
 
-/** Host stats. Hover arrows flip between the meter view and a numeric detail
- *  breakdown (load, memory totals, disk free, process) — the extra fields the
- *  meters hide. The chosen view persists in the widget's layout props. */
+// Per-instance gradient id namespace (same approach as the Tokens widget —
+// the shim'd React build has no useId).
+let gradSeq = 0;
+
+/** One live sparkline: rolling window of a single signal, drawn with the
+ *  Tokens line-chart geometry (area fill + non-scaling stroke). */
+function Spark({ values, fixedMax, label, readout, gid }: {
+  values: (number | null)[];
+  fixedMax: number | undefined;
+  label: string;
+  readout: string;
+  gid: string;
+}) {
+  const max = signalMax(values, fixedMax);
+  const H = 100, W = 100, PAD = 6;
+  const line = seriesPath(values, max, W, H, PAD);
+  const area = areaPath(line, H);
+  return (
+    <div className="host-spark">
+      <div className="host-spark-head">
+        <span className="dim">{label}</span>
+        <span className="val">{readout}</span>
+      </div>
+      <svg className="home-area" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" style={{ stopColor: "var(--home-accent)", stopOpacity: 0.4 }} />
+            <stop offset="100%" style={{ stopColor: "var(--home-accent)", stopOpacity: 0 }} />
+          </linearGradient>
+        </defs>
+        {area && <path d={area} fill={`url(#${gid})`} />}
+        {line && (
+          <path
+            d={line}
+            fill="none"
+            stroke="var(--home-accent)"
+            strokeWidth={1.5}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+    </div>
+  );
+}
+
+/** Host stats. Hover arrows cycle meters → detail → graphs; the graphs view
+ *  shows four live sparklines (cpu, ram, load, proc) over a rolling one-minute
+ *  window sampled every 2s. The chosen view persists in the layout props. */
 export function HostWidget({ system, widgetProps, onWidgetPropsChange }: Props) {
+  const view: HostView = coerceHostView(widgetProps.view);
+  const [buf, setBuf] = useState<HostSample[]>([]);
+  const latest = useRef<SystemStats | null>(null);
+  latest.current = system;
+  const [gidBase] = useState(() => `host-grad-${gradSeq++}`);
+
+  // Live sampler: the shared poll refreshes `system` every ~10s; between
+  // polls we re-sample the latest payload every 2s so fast-moving signals
+  // (cpu%) still draw a dense line. Runs only while the graphs view is up.
+  useEffect(() => {
+    if (view !== "graphs") return;
+    setBuf([]);
+    const tick = () => {
+      const s = latest.current;
+      if (!s) return;
+      setBuf((prev) => pushSample(prev, toSample(s, Date.now()), BUFFER_CAP));
+    };
+    tick();
+    const id = setInterval(tick, SAMPLE_MS);
+    return () => clearInterval(id);
+  }, [view]);
+
   if (!system) return <span className="dim">loading…</span>;
-  const view: View = widgetProps.view === "detail" ? "detail" : "meters";
 
   const cycle = (dir: 1 | -1) => {
-    const i = (VIEWS.indexOf(view) + dir + VIEWS.length) % VIEWS.length;
-    onWidgetPropsChange({ ...widgetProps, view: VIEWS[i] });
+    const i = (HOST_VIEWS.indexOf(view) + dir + HOST_VIEWS.length) % HOST_VIEWS.length;
+    onWidgetPropsChange({ ...widgetProps, view: HOST_VIEWS[i] });
   };
 
   return (
     <div>
       <HoverArrows onPrev={() => cycle(-1)} onNext={() => cycle(1)} label={view} />
-      {view === "meters" ? (
+      {view === "meters" && (
         <>
           <div className="meters">
             {system.cpu_percent !== undefined && (
@@ -72,7 +144,8 @@ export function HostWidget({ system, widgetProps, onWidgetPropsChange }: Props) 
             <span>{system.uptime_seconds !== undefined ? formatUptime(system.uptime_seconds) : "—"}</span>
           </div>
         </>
-      ) : (
+      )}
+      {view === "detail" && (
         <div className="rows">
           {system.load_avg && system.load_avg.length >= 3 && (
             <Row label="load" val={system.load_avg.slice(0, 3).map((n) => n.toFixed(2)).join(" ")} />
@@ -88,6 +161,24 @@ export function HostWidget({ system, widgetProps, onWidgetPropsChange }: Props) 
             <Row label="proc" val={`${(system.process.rss / MB).toFixed(0)}M · ${system.process.num_threads} thr`} />
           )}
           <Row label="os" val={`${system.platform} ${system.arch}`} />
+        </div>
+      )}
+      {view === "graphs" && (
+        <div className="host-sparks">
+          {HOST_SIGNALS.map((sig) => {
+            const values = seriesOf(buf, sig.key);
+            const last = [...values].reverse().find((v) => v !== null);
+            return (
+              <Spark
+                key={sig.key}
+                values={values}
+                fixedMax={sig.fixedMax}
+                label={sig.label}
+                readout={last === undefined || last === null ? "—" : sig.format(last)}
+                gid={`${gidBase}-${sig.key}`}
+              />
+            );
+          })}
         </div>
       )}
     </div>
