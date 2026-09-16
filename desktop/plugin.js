@@ -1630,7 +1630,7 @@ function CalendarWidget({ gridSize }) {
 }
 const POLL_MS$2 = 12e4;
 const FILTERS = ["all", "open", "closed"];
-function ago(iso) {
+function ago$1(iso) {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "?";
   const s = Math.max(0, (Date.now() - t) / 1e3);
@@ -1704,12 +1704,12 @@ function GhReviewsWidget() {
           shortRepo(r.repo),
           "#",
           r.number,
-          open && /* @__PURE__ */ jsxs("span", { style: { opacity: 0.75 }, children: [
+          /* @__PURE__ */ jsxs("span", { style: { opacity: 0.75 }, children: [
             " · ",
             r.author
           ] })
         ] }),
-        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: ago(r.updated) })
+        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: ago$1(r.updated) })
       ] }, r.url);
     }) }),
     /* @__PURE__ */ jsx(
@@ -1723,15 +1723,25 @@ function GhReviewsWidget() {
   ] });
 }
 const POLL_MS$1 = 6e4;
-const VIEWS = ["entries", "watchlist", "off"];
-function fmtAge(s) {
+const VIEWS = ["history", "watchlist"];
+function ago(iso) {
+  if (!iso) return "?";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "?";
+  const s = Math.max(0, (Date.now() - t) / 1e3);
+  if (s < 60) return `${Math.floor(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+function fmtRemaining(s) {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   return `${Math.floor(s / 3600)}h`;
 }
 function XinyanMailWidget() {
   const [resp, setResp] = useState(null);
-  const [view, setView] = useState("entries");
+  const [view, setView] = useState("history");
   const [err, setErr] = useState(null);
   useEffect(() => {
     let cancelled = false;
@@ -1755,22 +1765,42 @@ function XinyanMailWidget() {
       clearInterval(t);
     };
   }, []);
-  const ttl_s = (resp?.ttl_hours ?? 6) * 3600;
   return /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
       /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Xinyan Mail" }),
-      /* @__PURE__ */ jsx("span", { style: { fontSize: 10, opacity: 0.65 }, children: resp ? `${resp.dispatched_active} active / ${resp.dispatched_total} tot` : err ? err.slice(0, 40) : "…" })
+      /* @__PURE__ */ jsx("span", { style: { fontSize: 10, opacity: 0.65 }, children: resp ? `${resp.history_total} balasan · ${resp.active_count} dedup` : err ? err.slice(0, 40) : "…" })
     ] }),
-    resp && view === "entries" && (resp.entries.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No dispatched mail in TTL window — inbox quiet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: resp.entries.slice(0, 5).map((e) => {
-      const remaining = ttl_s - e.age_s;
-      const hot = remaining > 0;
-      return /* @__PURE__ */ jsxs("li", { style: { display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }, children: [
-        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, flex: "0 0 auto", color: hot ? "#e5484d" : "#8b8fa3" }, children: "✉" }),
-        /* @__PURE__ */ jsx("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: e.message_id, children: e.message_id.replace(/[<>]/g, "").slice(0, 30) }),
-        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: hot ? `dedup ${fmtAge(Math.max(0, remaining))} left` : `sent ${fmtAge(e.age_s)} ago` })
-      ] }, e.message_id);
-    }) })),
-    resp && view === "watchlist" && /* @__PURE__ */ jsxs("div", { style: { marginTop: 6, fontSize: 11, opacity: 0.85 }, children: [
+    !resp ? /* @__PURE__ */ jsx("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: err ? "route error" : "loading…" }) : view === "history" ? /* @__PURE__ */ jsxs(Fragment, { children: [
+      resp.pending.length > 0 && /* @__PURE__ */ jsxs("div", { style: { fontSize: 10, color: "#e5c94c", marginTop: 4 }, children: [
+        "⏳ ",
+        resp.pending.length,
+        " balasan in-flight (dedup ",
+        fmtRemaining(resp.pending[0].remaining_s),
+        ")"
+      ] }),
+      resp.history.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "Belum ada email xinyan yang dibalas sejak cron dibuat." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: resp.history.map((h) => /* @__PURE__ */ jsxs("li", { style: { padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }, children: [
+        /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 6, alignItems: "baseline" }, children: [
+          /* @__PURE__ */ jsx("span", { style: { fontSize: 9, flex: "0 0 auto", color: "#4cc38a" }, children: "✉" }),
+          /* @__PURE__ */ jsx(
+            "span",
+            {
+              style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 },
+              title: h.subject,
+              children: h.subject
+            }
+          ),
+          /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: ago(h.run) })
+        ] }),
+        /* @__PURE__ */ jsx("div", { style: { display: "flex", gap: 6, paddingLeft: 15 }, children: /* @__PURE__ */ jsx(
+          "span",
+          {
+            style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: 0.7 },
+            title: h.reply_summary,
+            children: h.reply_summary || "(no summary)"
+          }
+        ) })
+      ] }, h.message_id || `${h.run}-${h.subject}`)) })
+    ] }) : /* @__PURE__ */ jsxs("div", { style: { marginTop: 6, fontSize: 11, opacity: 0.85 }, children: [
       /* @__PURE__ */ jsxs("div", { style: { opacity: 0.7, marginBottom: 4 }, children: [
         "Senders matching any pattern get an auto-reply (cron 30m, TTL ",
         resp.ttl_hours,

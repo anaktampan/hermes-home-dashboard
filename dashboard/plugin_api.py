@@ -50,6 +50,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 import asyncio  # noqa: E402
+import re  # noqa: E402
 import subprocess  # noqa: E402
 import time as _time  # noqa: E402
 
@@ -124,12 +125,14 @@ async def get_gh_reviews() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Xinyan email auto-reply state
+# Xinyan email auto-reply state + persistent reply history
 # ---------------------------------------------------------------------------
 
 _X_STATE = get_hermes_home() / "scripts" / ".email-xinyan-state.json"
 _X_WATCHLIST = get_hermes_home() / "scripts" / "email-xinyan-watchlist.txt"
 _X_TTL_H = 6.0  # must mirror email-xinyan-watch.py STATE_TTL_H
+_X_JOB_NAME = "email-auto-reply-xinyan"
+_x_job_dir_cache: Dict[str, Any] = {"dir": None}
 
 
 def _read_xinyan_state() -> Dict[str, Any]:
@@ -151,37 +154,128 @@ def _read_xinyan_watchlist() -> list[str]:
     ]
 
 
+def _find_xinyan_job_dir():
+    """Locate the cron output dir for the xinyan job by its .md headers."""
+    if _x_job_dir_cache["dir"] is not None:
+        return _x_job_dir_cache["dir"]
+    root = get_hermes_home() / "cron" / "output"
+    if not root.is_dir():
+        return None
+    for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
+        for md in sorted(d.glob("*.md"), reverse=True)[:3]:
+            try:
+                head = md.read_text("utf-8", errors="replace")[:200]
+            except OSError:
+                continue
+            if _X_JOB_NAME in head:
+                _x_job_dir_cache["dir"] = d
+                return d
+    return None
+
+
+def _read_xinyan_history(max_runs: int = 40) -> list[Dict[str, Any]]:
+    """Replied-email history from cron run reports (persists beyond TTL).
+
+    Each run .md embeds the dispatched batch JSON (message-id, from, subject)
+    and the agent's final report with one `✉️ Dibalas:` + `↳ summary` block
+    per email. Newest runs first.
+    """
+    d = _find_xinyan_job_dir()
+    if d is None:
+        return []
+    out: list[Dict[str, Any]] = []
+    runs_seen = 0
+    for md in sorted(d.glob("*.md"), reverse=True):
+        runs_seen += 1
+        if runs_seen > max_runs:
+            break
+        try:
+            text = md.read_text("utf-8", errors="replace")
+        except OSError:
+            continue
+        m = re.match(r"(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})\.md$", md.name)
+        run_iso = f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}+00:00" if m else None
+        # dispatched batch JSON (single line inside the fenced script output)
+        batch_emails: list[Dict[str, Any]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith('{"wakeAgent": true'):
+                try:
+                    batch = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                batch_emails = batch.get("emails") or []
+                break
+        if not batch_emails:
+            continue  # wakeAgent=false run — nothing dispatched
+        # reply summaries from the agent's final report, in batch order.
+        # ONLY parse after the "## Response" header — the prompt template
+        # itself contains literal "✉️ Dibalas:" / "↳" example lines.
+        summaries: list[str] = []
+        resp_idx = text.find("## Response")
+        if resp_idx >= 0:
+            lines = text[resp_idx:].splitlines()
+            for i, ln in enumerate(lines):
+                if ln.strip().startswith("✉️ Dibalas:"):
+                    summ = ""
+                    for nxt in lines[i + 1:i + 3]:
+                        if nxt.strip().startswith("↳"):
+                            summ = nxt.strip().lstrip("↳").strip()
+                            break
+                    summaries.append(summ)
+        for idx, em in enumerate(batch_emails[:5]):
+            frm = em.get("from") or [{}]
+            if isinstance(frm, dict):
+                frm = [frm]
+            first = frm[0] if frm else {}
+            out.append({
+                "run": run_iso,
+                "message_id": em.get("message_id") or "",
+                "from_name": first.get("name") or "",
+                "from_email": first.get("email") or "",
+                "subject": em.get("subject") or "",
+                "reply_summary": summaries[idx] if idx < len(summaries) else "",
+            })
+    return out
+
+
 @router.get("/xinyan-mail")
 async def get_xinyan_mail() -> Dict[str, Any]:
-    """Snapshot of the email-auto-reply-xinyan cron state.
+    """Xinyan auto-reply snapshot: active dedup window + persistent history.
 
-    Reads the state file written by ~/.hermes/scripts/email-xinyan-watch.py —
-    never calls IMAP itself, so the widget poll can never trigger a reply.
+    Never calls IMAP — reads the cron state file and cron run reports.
     """
     state = _read_xinyan_state()
     dispatched = state.get("dispatched", {})
-    entries: list[Dict[str, Any]] = []
     now = _time.time()
+    ttl_s = _X_TTL_H * 3600
+    active: list[Dict[str, Any]] = []
     for mid, ts in (dispatched or {}).items():
         ts_f = float(ts) if isinstance(ts, (int, float)) else _parse_iso8601_utc(str(ts))
         if ts_f is None:
             continue
-        entries.append({
-            "message_id": mid,
-            "dispatched_epoch": ts_f,
-            "age_s": max(0, int(now - ts_f)),
-        })
-    entries.sort(key=lambda e: e["age_s"])  # newest first
-    ttl_s = _X_TTL_H * 3600
+        remaining = int(ttl_s - (now - ts_f))
+        if remaining > 0:
+            active.append({"message_id": mid, "remaining_s": remaining})
+    active.sort(key=lambda e: e["remaining_s"], reverse=True)
+
+    history = _read_xinyan_history()
+    hist_ids = {h["message_id"] for h in history if h["message_id"]}
+    # dispatched-but-not-yet-in-history => reply in flight
+    pending = [a for a in active if a["message_id"] not in hist_ids]
+
     watchlist = _read_xinyan_watchlist()
     return {
         "ok": True,
         "watchlist": watchlist,
         "watchlist_count": len(watchlist),
-        "dispatched_active": len([e for e in entries if e["age_s"] < ttl_s]),
-        "dispatched_total": len(entries),
+        "active_count": len(active),
+        "pending": pending,
+        "history": history[:5],
+        "history_total": len(history),
         "ttl_hours": _X_TTL_H,
-        "entries": entries[:10],
     }
 
 LAYOUT_FILE = get_hermes_home() / "plugins" / "home-dashboard" / "layout.json"

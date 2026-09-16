@@ -115,9 +115,7 @@ export function GhReviewsWidget() {
             </span>
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${r.repo}#${r.number} — ${r.title} (by ${r.author})`}>
                 {shortRepo(r.repo)}#{r.number}
-                {open && (
-                  <span style={{ opacity: 0.75 }}> · {r.author}</span>
-                )}
+                <span style={{ opacity: 0.75 }}> · {r.author}</span>
               </span>
               <span style={{ fontSize: 9, opacity: 0.6, flex: "0 0 auto" }}>{ago(r.updated)}</span>
             </li>
