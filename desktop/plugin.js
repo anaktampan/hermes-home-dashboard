@@ -1628,6 +1628,161 @@ function CalendarWidget({ gridSize }) {
     ] })
   ] });
 }
+const POLL_MS$2 = 12e4;
+const FILTERS = ["all", "open", "closed"];
+function ago(iso) {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "?";
+  const s = Math.max(0, (Date.now() - t) / 1e3);
+  if (s < 60) return `${Math.floor(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+function shortRepo(repo) {
+  const idx = repo.lastIndexOf("/");
+  return idx >= 0 ? repo.slice(idx + 1) : repo;
+}
+function GhReviewsWidget() {
+  const [resp, setResp] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetchJSON(
+          "/api/plugins/home-dashboard/gh-reviews"
+        );
+        if (!cancelled) {
+          setResp(r);
+          setErr(null);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      }
+    };
+    load();
+    const t = setInterval(load, POLL_MS$2);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+  const reviews = (resp?.reviews ?? []).filter(
+    (r) => filter === "all" ? true : r.state === filter
+  );
+  return /* @__PURE__ */ jsxs("div", { className: "wd-ghreviews", style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
+      /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Reviews" }),
+      /* @__PURE__ */ jsxs("span", { style: { fontSize: 10, opacity: 0.65 }, children: [
+        resp?.stale ? "stale" : resp?.cached ? `cache ${resp.age_s ?? "?"}s` : "live",
+        err ? ` · ${err.slice(0, 40)}` : ""
+      ] })
+    ] }),
+    resp && !resp.ok && !resp.reviews.length ? /* @__PURE__ */ jsxs("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: [
+      "gh search failed — ",
+      (resp.error ?? "").slice(0, 80)
+    ] }) : reviews.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No reviews yet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: reviews.slice(0, 8).map((r) => /* @__PURE__ */ jsxs("li", { style: { display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }, children: [
+      /* @__PURE__ */ jsx(
+        "span",
+        {
+          title: r.state,
+          style: {
+            fontSize: 9,
+            lineHeight: "14px",
+            flex: "0 0 auto",
+            color: r.state === "open" ? "#4cc38a" : "#8b8fa3"
+          },
+          children: r.state === "open" ? "◉" : "○"
+        }
+      ),
+      /* @__PURE__ */ jsxs("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: `${r.repo}#${r.number} — ${r.title}`, children: [
+        shortRepo(r.repo),
+        "#",
+        r.number
+      ] }),
+      /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: ago(r.updated) })
+    ] }, r.url)) }),
+    /* @__PURE__ */ jsx(
+      HoverArrows,
+      {
+        label: filter,
+        onPrev: () => setFilter(FILTERS[(FILTERS.indexOf(filter) + FILTERS.length - 1) % FILTERS.length]),
+        onNext: () => setFilter(FILTERS[(FILTERS.indexOf(filter) + 1) % FILTERS.length])
+      }
+    )
+  ] });
+}
+const POLL_MS$1 = 6e4;
+const VIEWS = ["entries", "watchlist", "off"];
+function fmtAge(s) {
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h`;
+}
+function XinyanMailWidget() {
+  const [resp, setResp] = useState(null);
+  const [view, setView] = useState("entries");
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetchJSON(
+          "/api/plugins/home-dashboard/xinyan-mail"
+        );
+        if (!cancelled) {
+          setResp(r);
+          setErr(null);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      }
+    };
+    load();
+    const t = setInterval(load, POLL_MS$1);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+  const ttl_s = (resp?.ttl_hours ?? 6) * 3600;
+  return /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
+    /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
+      /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Xinyan Mail" }),
+      /* @__PURE__ */ jsx("span", { style: { fontSize: 10, opacity: 0.65 }, children: resp ? `${resp.dispatched_active} active / ${resp.dispatched_total} tot` : err ? err.slice(0, 40) : "…" })
+    ] }),
+    resp && view === "entries" && (resp.entries.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No dispatched mail in TTL window — inbox quiet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: resp.entries.map((e) => {
+      const remaining = ttl_s - e.age_s;
+      const hot = remaining > 0;
+      return /* @__PURE__ */ jsxs("li", { style: { display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }, children: [
+        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, flex: "0 0 auto", color: hot ? "#e5484d" : "#8b8fa3" }, children: "✉" }),
+        /* @__PURE__ */ jsx("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: e.message_id, children: e.message_id.replace(/[<>]/g, "").slice(0, 30) }),
+        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: hot ? `dedup ${fmtAge(Math.max(0, remaining))} left` : `sent ${fmtAge(e.age_s)} ago` })
+      ] }, e.message_id);
+    }) })),
+    resp && view === "watchlist" && /* @__PURE__ */ jsxs("div", { style: { marginTop: 6, fontSize: 11, opacity: 0.85 }, children: [
+      /* @__PURE__ */ jsxs("div", { style: { opacity: 0.7, marginBottom: 4 }, children: [
+        "Senders matching any pattern get an auto-reply (cron 30m, TTL ",
+        resp.ttl_hours,
+        "h):"
+      ] }),
+      resp.watchlist.length ? resp.watchlist.map((w) => /* @__PURE__ */ jsxs("div", { style: { fontFamily: "var(--font-mono, monospace)" }, children: [
+        "· ",
+        w
+      ] }, w)) : /* @__PURE__ */ jsx("div", { style: { opacity: 0.7 }, children: "default: xinyan" })
+    ] }),
+    /* @__PURE__ */ jsx(
+      HoverArrows,
+      {
+        label: view,
+        onPrev: () => setView(VIEWS[(VIEWS.indexOf(view) + VIEWS.length - 1) % VIEWS.length]),
+        onNext: () => setView(VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length])
+      }
+    )
+  ] });
+}
 const WIDGET_REGISTRY = {
   ascii: {
     title: "hermes",
@@ -1789,6 +1944,22 @@ const WIDGET_REGISTRY = {
     component: ({ gridSize }) => /* @__PURE__ */ jsx(CalendarWidget, { gridSize }),
     defaultSize: { gw: 3, gh: 4 },
     minSize: { gw: 2, gh: 3 },
+    navigateTo: null,
+    dataSource: null
+  },
+  ghreviews: {
+    title: "reviews",
+    component: () => /* @__PURE__ */ jsx(GhReviewsWidget, {}),
+    defaultSize: { gw: 3, gh: 4 },
+    minSize: { gw: 2, gh: 3 },
+    navigateTo: null,
+    dataSource: null
+  },
+  xinyanmail: {
+    title: "xinyan",
+    component: () => /* @__PURE__ */ jsx(XinyanMailWidget, {}),
+    defaultSize: { gw: 3, gh: 3 },
+    minSize: { gw: 2, gh: 2 },
     navigateTo: null,
     dataSource: null
   }

@@ -43,6 +43,147 @@ except Exception:  # pragma: no cover - allows local unit tests
 
 router = APIRouter()
 
+# ---------------------------------------------------------------------------
+# anaktampan custom routes: GitHub review history + Xinyan email replies.
+# Both read local state only (no new API tokens): gh CLI (already authed as
+# aziz-yoco) and the email-auto-reply cron artifacts on disk.
+# ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+import subprocess  # noqa: E402
+import time as _time  # noqa: E402
+
+_GH_BIN = "/home/aziz/.local/bin/gh"
+_GH_REVIEW_CACHE: Dict[str, Any] = {"t": 0.0, "data": None}
+_GH_CACHE_TTL = 300.0  # seconds
+
+
+def _parse_iso8601_utc(s: str) -> float | None:
+    """'2026-09-16T09:56:59Z' -> epoch seconds; None on failure."""
+    import datetime as _dt
+
+    try:
+        return _dt.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except (ValueError, AttributeError):
+        return None
+
+
+def _run_gh_review_search() -> list[Dict[str, Any]]:
+    """Recent PRs reviewed by aziz-yoco across all repos (search API).
+
+    Uses the same `gh` binary the rest of the host uses; auth comes from the
+    existing gh config (aziz-yoco token, no new secrets in .env).
+    """
+    jq = (
+        '.items[] | {repo: (.repository_url | sub(".*repos/"; "")), '
+        "title: .title, state: .state, updated: .updated_at, "
+        "number: .number, author: .user.login, url: .html_url}"
+    )
+    cmd = [
+        _GH_BIN, "api", "--method", "GET", "search/issues",
+        "-f", "q=is:pr reviewed-by:aziz-yoco sort:updated-desc",
+        "-f", "per_page=15",
+        "--jq", jq,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout or "gh search failed")[:300])
+    items: list[Dict[str, Any]] = []
+    for line in (r.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            items.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return items
+
+
+@router.get("/gh-reviews")
+async def get_gh_reviews() -> Dict[str, Any]:
+    """Recent PR reviews by aziz-yoco, cached 5 min server-side."""
+    now = _time.time()
+    if _GH_REVIEW_CACHE["data"] is not None and (now - _GH_REVIEW_CACHE["t"]) < _GH_CACHE_TTL:
+        return {
+            "ok": True, "cached": True, "age_s": int(now - _GH_REVIEW_CACHE["t"]),
+            "reviews": _GH_REVIEW_CACHE["data"],
+        }
+    try:
+        reviews = await asyncio.to_thread(_run_gh_review_search)
+    except Exception as e:  # noqa: BLE001 — degrade to stale cache on failure
+        if _GH_REVIEW_CACHE["data"] is not None:
+            return {
+                "ok": True, "cached": True, "stale": True,
+                "reviews": _GH_REVIEW_CACHE["data"],
+            }
+        return {"ok": False, "error": str(e), "reviews": []}
+    _GH_REVIEW_CACHE["t"] = now
+    _GH_REVIEW_CACHE["data"] = reviews
+    return {"ok": True, "cached": False, "reviews": reviews}
+
+
+# ---------------------------------------------------------------------------
+# Xinyan email auto-reply state
+# ---------------------------------------------------------------------------
+
+_X_STATE = get_hermes_home() / "scripts" / ".email-xinyan-state.json"
+_X_WATCHLIST = get_hermes_home() / "scripts" / "email-xinyan-watchlist.txt"
+_X_TTL_H = 6.0  # must mirror email-xinyan-watch.py STATE_TTL_H
+
+
+def _read_xinyan_state() -> Dict[str, Any]:
+    try:
+        data = json.loads(_X_STATE.read_text("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _read_xinyan_watchlist() -> list[str]:
+    try:
+        lines = (_X_WATCHLIST.read_text("utf-8")).splitlines()
+    except Exception:
+        return []
+    return [
+        ln.strip() for ln in lines
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+
+
+@router.get("/xinyan-mail")
+async def get_xinyan_mail() -> Dict[str, Any]:
+    """Snapshot of the email-auto-reply-xinyan cron state.
+
+    Reads the state file written by ~/.hermes/scripts/email-xinyan-watch.py —
+    never calls IMAP itself, so the widget poll can never trigger a reply.
+    """
+    state = _read_xinyan_state()
+    dispatched = state.get("dispatched", {})
+    entries: list[Dict[str, Any]] = []
+    now = _time.time()
+    for mid, ts in (dispatched or {}).items():
+        ts_f = float(ts) if isinstance(ts, (int, float)) else _parse_iso8601_utc(str(ts))
+        if ts_f is None:
+            continue
+        entries.append({
+            "message_id": mid,
+            "dispatched_epoch": ts_f,
+            "age_s": max(0, int(now - ts_f)),
+        })
+    entries.sort(key=lambda e: e["age_s"])  # newest first
+    ttl_s = _X_TTL_H * 3600
+    watchlist = _read_xinyan_watchlist()
+    return {
+        "ok": True,
+        "watchlist": watchlist,
+        "watchlist_count": len(watchlist),
+        "dispatched_active": len([e for e in entries if e["age_s"] < ttl_s]),
+        "dispatched_total": len(entries),
+        "ttl_hours": _X_TTL_H,
+        "entries": entries[:10],
+    }
+
 LAYOUT_FILE = get_hermes_home() / "plugins" / "home-dashboard" / "layout.json"
 _MAX_WIDGETS = 64
 

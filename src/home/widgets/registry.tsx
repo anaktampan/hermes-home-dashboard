@@ -16,6 +16,8 @@ import { LifeWidget } from "./LifeWidget";
 import { PomodoroWidget } from "./PomodoroWidget";
 import { CountdownWidget } from "./CountdownWidget";
 import { CalendarWidget } from "./CalendarWidget";
+import { GhReviewsWidget } from "./GhReviewsWidget";
+import { XinyanMailWidget } from "./XinyanMailWidget";
 
 export interface WidgetRenderProps {
   data: HomeData;
@@ -184,6 +186,18 @@ export const WIDGET_REGISTRY: Record<string, WidgetDef> = {
     title: "calendar",
     component: ({ gridSize }) => <CalendarWidget gridSize={gridSize} />,
     defaultSize: { gw: 3, gh: 4 }, minSize: { gw: 2, gh: 3 },
+    navigateTo: null, dataSource: null,
+  },
+  ghreviews: {
+    title: "reviews",
+    component: () => <GhReviewsWidget />,
+    defaultSize: { gw: 3, gh: 4 }, minSize: { gw: 2, gh: 3 },
+    navigateTo: null, dataSource: null,
+  },
+  xinyanmail: {
+    title: "xinyan",
+    component: () => <XinyanMailWidget />,
+    defaultSize: { gw: 3, gh: 3 }, minSize: { gw: 2, gh: 2 },
     navigateTo: null, dataSource: null,
   },
 };
