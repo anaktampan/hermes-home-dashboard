@@ -1669,9 +1669,10 @@ function GhReviewsWidget() {
       clearInterval(t);
     };
   }, []);
-  const reviews = (resp?.reviews ?? []).filter(
-    (r) => filter === "all" ? true : r.state === filter
-  );
+  const reviews = (resp?.reviews ?? []).filter((r) => filter === "all" ? true : r.state === filter).slice().sort((a, b) => {
+    if (a.state !== b.state) return a.state === "open" ? -1 : 1;
+    return Date.parse(b.updated) - Date.parse(a.updated);
+  });
   return /* @__PURE__ */ jsxs("div", { className: "wd-ghreviews", style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
       /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Reviews" }),
@@ -1683,27 +1684,34 @@ function GhReviewsWidget() {
     resp && !resp.ok && !resp.reviews.length ? /* @__PURE__ */ jsxs("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: [
       "gh search failed — ",
       (resp.error ?? "").slice(0, 80)
-    ] }) : reviews.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No reviews yet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: reviews.slice(0, 8).map((r) => /* @__PURE__ */ jsxs("li", { style: { display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }, children: [
-      /* @__PURE__ */ jsx(
-        "span",
-        {
-          title: r.state,
-          style: {
-            fontSize: 9,
-            lineHeight: "14px",
-            flex: "0 0 auto",
-            color: r.state === "open" ? "#4cc38a" : "#8b8fa3"
-          },
-          children: r.state === "open" ? "◉" : "○"
-        }
-      ),
-      /* @__PURE__ */ jsxs("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: `${r.repo}#${r.number} — ${r.title}`, children: [
-        shortRepo(r.repo),
-        "#",
-        r.number
-      ] }),
-      /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: ago(r.updated) })
-    ] }, r.url)) }),
+    ] }) : reviews.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No reviews yet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: reviews.slice(0, 8).map((r) => {
+      const open = r.state === "open";
+      return /* @__PURE__ */ jsxs("li", { style: { display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }, children: [
+        /* @__PURE__ */ jsx(
+          "span",
+          {
+            title: r.state,
+            style: {
+              fontSize: 9,
+              lineHeight: "14px",
+              flex: "0 0 auto",
+              color: open ? "#4cc38a" : "#8b8fa3"
+            },
+            children: open ? "◉" : "○"
+          }
+        ),
+        /* @__PURE__ */ jsxs("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: `${r.repo}#${r.number} — ${r.title} (by ${r.author})`, children: [
+          shortRepo(r.repo),
+          "#",
+          r.number,
+          open && /* @__PURE__ */ jsxs("span", { style: { opacity: 0.75 }, children: [
+            " · ",
+            r.author
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx("span", { style: { fontSize: 9, opacity: 0.6, flex: "0 0 auto" }, children: ago(r.updated) })
+      ] }, r.url);
+    }) }),
     /* @__PURE__ */ jsx(
       HoverArrows,
       {
@@ -1753,7 +1761,7 @@ function XinyanMailWidget() {
       /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Xinyan Mail" }),
       /* @__PURE__ */ jsx("span", { style: { fontSize: 10, opacity: 0.65 }, children: resp ? `${resp.dispatched_active} active / ${resp.dispatched_total} tot` : err ? err.slice(0, 40) : "…" })
     ] }),
-    resp && view === "entries" && (resp.entries.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No dispatched mail in TTL window — inbox quiet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: resp.entries.map((e) => {
+    resp && view === "entries" && (resp.entries.length === 0 ? /* @__PURE__ */ jsx("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: "No dispatched mail in TTL window — inbox quiet." }) : /* @__PURE__ */ jsx("ul", { style: { listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }, children: resp.entries.slice(0, 5).map((e) => {
       const remaining = ttl_s - e.age_s;
       const hot = remaining > 0;
       return /* @__PURE__ */ jsxs("li", { style: { display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }, children: [

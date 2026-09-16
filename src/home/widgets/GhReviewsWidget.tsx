@@ -72,9 +72,14 @@ export function GhReviewsWidget() {
     };
   }, []);
 
-  const reviews = (resp?.reviews ?? []).filter((r) =>
-    filter === "all" ? true : r.state === filter,
-  );
+  const reviews = (resp?.reviews ?? [])
+    .filter((r) => (filter === "all" ? true : r.state === filter))
+    .slice()
+    .sort((a, b) => {
+      // open first, then newest update within each group
+      if (a.state !== b.state) return a.state === "open" ? -1 : 1;
+      return Date.parse(b.updated) - Date.parse(a.updated);
+    });
 
   return (
     <div className="wd-ghreviews" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -95,23 +100,29 @@ export function GhReviewsWidget() {
         </div>
       ) : (
         <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }}>
-          {reviews.slice(0, 8).map((r) => (
+          {reviews.slice(0, 8).map((r) => {
+            const open = r.state === "open";
+            return (
             <li key={r.url} style={{ display: "flex", gap: 6, padding: "3px 0", alignItems: "baseline" }}>
               <span
                 title={r.state}
                 style={{
                   fontSize: 9, lineHeight: "14px", flex: "0 0 auto",
-                  color: r.state === "open" ? "#4cc38a" : "#8b8fa3",
+                  color: open ? "#4cc38a" : "#8b8fa3",
                 }}
               >
-                {r.state === "open" ? "◉" : "○"}
+                {open ? "◉" : "○"}
             </span>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${r.repo}#${r.number} — ${r.title}`}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${r.repo}#${r.number} — ${r.title} (by ${r.author})`}>
                 {shortRepo(r.repo)}#{r.number}
+                {open && (
+                  <span style={{ opacity: 0.75 }}> · {r.author}</span>
+                )}
               </span>
               <span style={{ fontSize: 9, opacity: 0.6, flex: "0 0 auto" }}>{ago(r.updated)}</span>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
       <HoverArrows

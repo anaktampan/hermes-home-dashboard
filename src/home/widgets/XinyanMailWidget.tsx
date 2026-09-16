@@ -76,7 +76,7 @@ export function XinyanMailWidget() {
           </div>
         ) : (
           <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0, overflowY: "auto", flex: 1, minHeight: 0, fontSize: 11 }}>
-            {resp.entries.map((e) => {
+            {resp.entries.slice(0, 5).map((e) => {
               const remaining = ttl_s - e.age_s;
               const hot = remaining > 0;
               return (
