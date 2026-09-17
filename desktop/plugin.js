@@ -1664,9 +1664,14 @@ function GhReviewsWidget() {
     };
     load();
     const t = setInterval(load, POLL_MS$2);
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
   const reviews = (resp?.reviews ?? []).filter((r) => filter === "all" ? true : r.state === filter).slice().sort((a, b) => {
@@ -1760,9 +1765,14 @@ function XinyanMailWidget() {
     };
     load();
     const t = setInterval(load, POLL_MS$1);
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
   return /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [

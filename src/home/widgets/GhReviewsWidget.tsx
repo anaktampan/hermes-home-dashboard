@@ -66,9 +66,16 @@ export function GhReviewsWidget() {
     };
     load();
     const t = setInterval(load, POLL_MS);
+    // Chrome throttles/freezes timers in background tabs, so interval ticks
+    // are missed while hidden — catch up the moment the tab is visible again.
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
