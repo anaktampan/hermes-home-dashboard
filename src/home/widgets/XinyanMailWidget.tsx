@@ -27,7 +27,6 @@ interface XinyanResp {
   ttl_hours: number;
 }
 
-const POLL_MS = 60_000;
 const VIEWS = ["history", "watchlist"] as const;
 type View = (typeof VIEWS)[number];
 
@@ -50,15 +49,19 @@ function fmtRemaining(s: number): string {
 
 /** Xinyan auto-reply: persistent reply history (from cron run reports, since
  *  the job was created) + live dedup window + watchlist. Read-only view —
- *  never touches IMAP, never triggers a reply. */
+ *  never touches IMAP, never triggers a reply. Manual refresh only (↻ button);
+ *  the underlying cron runs every 30m anyway, so polling adds nothing. */
 export function XinyanMailWidget() {
-  const [resp, setResp] = useState<XinyanResp | null>(null);
   const [view, setView] = useState<View>("history");
+  const [resp, setResp] = useState<XinyanResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    (async () => {
+      setBusy(true);
       try {
         const r = await fetchJSON<XinyanResp>(
           "/api/plugins/home-dashboard/xinyan-mail",
@@ -69,34 +72,38 @@ export function XinyanMailWidget() {
         }
       } catch (e) {
         if (!cancelled) setErr(String(e));
+      } finally {
+        if (!cancelled) setBusy(false);
       }
-    };
-    load();
-    const t = setInterval(load, POLL_MS);
-    // Chrome throttles/freezes timers in background tabs, so interval ticks
-    // are missed while hidden — catch up the moment the tab is visible again.
-    const onVisible = () => {
-      if (!document.hidden) load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    })();
     return () => {
       cancelled = true;
-      clearInterval(t);
-      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [nonce]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span className="wd-title" style={{ fontWeight: 700 }}>Xinyan Mail</span>
-        <span style={{ fontSize: 10, opacity: 0.65 }}>
+        <span style={{ fontSize: 10, opacity: 0.65, flex: 1, minWidth: 0 }}>
           {resp
             ? `${resp.history_total} balasan · ${resp.active_count} dedup`
             : err
               ? err.slice(0, 40)
               : "…"}
         </span>
+        <button
+          onClick={() => setNonce((n) => n + 1)}
+          disabled={busy}
+          title="Refresh"
+          style={{
+            flex: "0 0 auto", border: "none", background: "transparent", cursor: "pointer",
+            padding: "0 2px", fontSize: 11, lineHeight: "14px", opacity: busy ? 0.4 : 0.7,
+            color: "inherit", fontFamily: "inherit",
+          }}
+        >
+          {busy ? "…" : "↻"}
+        </button>
       </div>
       {!resp ? (
         <div style={{ fontSize: 11, opacity: 0.7, marginTop: 6 }}>

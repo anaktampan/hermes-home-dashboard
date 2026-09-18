@@ -1628,8 +1628,39 @@ function CalendarWidget({ gridSize }) {
     ] })
   ] });
 }
-const POLL_MS$2 = 12e4;
 const FILTERS = ["all", "open", "closed"];
+function useManualLoad(url) {
+  const [resp, setResp] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      try {
+        const r = await fetchJSON(url);
+        if (!cancelled) {
+          setResp(r);
+          setErr(null);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url, nonce]);
+  return {
+    resp,
+    err,
+    busy,
+    refresh: () => setNonce((n) => n + 1)
+  };
+}
 function ago$1(iso) {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "?";
@@ -1644,36 +1675,10 @@ function shortRepo(repo) {
   return idx >= 0 ? repo.slice(idx + 1) : repo;
 }
 function GhReviewsWidget() {
-  const [resp, setResp] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [err, setErr] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const r = await fetchJSON(
-          "/api/plugins/home-dashboard/gh-reviews"
-        );
-        if (!cancelled) {
-          setResp(r);
-          setErr(null);
-        }
-      } catch (e) {
-        if (!cancelled) setErr(String(e));
-      }
-    };
-    load();
-    const t = setInterval(load, POLL_MS$2);
-    const onVisible = () => {
-      if (!document.hidden) load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
+  const { resp, err, busy, refresh } = useManualLoad(
+    "/api/plugins/home-dashboard/gh-reviews"
+  );
   const reviews = (resp?.reviews ?? []).filter((r) => filter === "all" ? true : r.state === filter).slice().sort((a, b) => {
     if (a.state !== b.state) return a.state === "open" ? -1 : 1;
     return Date.parse(b.updated) - Date.parse(a.updated);
@@ -1681,10 +1686,31 @@ function GhReviewsWidget() {
   return /* @__PURE__ */ jsxs("div", { className: "wd-ghreviews", style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
       /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Reviews" }),
-      /* @__PURE__ */ jsxs("span", { style: { fontSize: 10, opacity: 0.65 }, children: [
+      /* @__PURE__ */ jsxs("span", { style: { fontSize: 10, opacity: 0.65, flex: 1, minWidth: 0 }, children: [
         resp?.stale ? "stale" : resp?.cached ? `cache ${resp.age_s ?? "?"}s` : "live",
         err ? ` · ${err.slice(0, 40)}` : ""
-      ] })
+      ] }),
+      /* @__PURE__ */ jsx(
+        "button",
+        {
+          onClick: refresh,
+          disabled: busy,
+          title: "Refresh",
+          style: {
+            flex: "0 0 auto",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            padding: "0 2px",
+            fontSize: 11,
+            lineHeight: "14px",
+            opacity: busy ? 0.4 : 0.7,
+            color: "inherit",
+            fontFamily: "inherit"
+          },
+          children: busy ? "…" : "↻"
+        }
+      )
     ] }),
     resp && !resp.ok && !resp.reviews.length ? /* @__PURE__ */ jsxs("div", { className: "wd-empty", style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: [
       "gh search failed — ",
@@ -1727,7 +1753,6 @@ function GhReviewsWidget() {
     )
   ] });
 }
-const POLL_MS$1 = 6e4;
 const VIEWS = ["history", "watchlist"];
 function ago(iso) {
   if (!iso) return "?";
@@ -1745,12 +1770,15 @@ function fmtRemaining(s) {
   return `${Math.floor(s / 3600)}h`;
 }
 function XinyanMailWidget() {
-  const [resp, setResp] = useState(null);
   const [view, setView] = useState("history");
+  const [resp, setResp] = useState(null);
   const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [nonce, setNonce] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    (async () => {
+      setBusy(true);
       try {
         const r = await fetchJSON(
           "/api/plugins/home-dashboard/xinyan-mail"
@@ -1761,24 +1789,39 @@ function XinyanMailWidget() {
         }
       } catch (e) {
         if (!cancelled) setErr(String(e));
+      } finally {
+        if (!cancelled) setBusy(false);
       }
-    };
-    load();
-    const t = setInterval(load, POLL_MS$1);
-    const onVisible = () => {
-      if (!document.hidden) load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    })();
     return () => {
       cancelled = true;
-      clearInterval(t);
-      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [nonce]);
   return /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
     /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
       /* @__PURE__ */ jsx("span", { className: "wd-title", style: { fontWeight: 700 }, children: "Xinyan Mail" }),
-      /* @__PURE__ */ jsx("span", { style: { fontSize: 10, opacity: 0.65 }, children: resp ? `${resp.history_total} balasan · ${resp.active_count} dedup` : err ? err.slice(0, 40) : "…" })
+      /* @__PURE__ */ jsx("span", { style: { fontSize: 10, opacity: 0.65, flex: 1, minWidth: 0 }, children: resp ? `${resp.history_total} balasan · ${resp.active_count} dedup` : err ? err.slice(0, 40) : "…" }),
+      /* @__PURE__ */ jsx(
+        "button",
+        {
+          onClick: () => setNonce((n) => n + 1),
+          disabled: busy,
+          title: "Refresh",
+          style: {
+            flex: "0 0 auto",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            padding: "0 2px",
+            fontSize: 11,
+            lineHeight: "14px",
+            opacity: busy ? 0.4 : 0.7,
+            color: "inherit",
+            fontFamily: "inherit"
+          },
+          children: busy ? "…" : "↻"
+        }
+      )
     ] }),
     !resp ? /* @__PURE__ */ jsx("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 6 }, children: err ? "route error" : "loading…" }) : view === "history" ? /* @__PURE__ */ jsxs(Fragment, { children: [
       resp.pending.length > 0 && /* @__PURE__ */ jsxs("div", { style: { fontSize: 10, color: "#e5c94c", marginTop: 4 }, children: [

@@ -21,9 +21,41 @@ interface GhReviewsResp {
   reviews: GhReview[];
 }
 
-const POLL_MS = 120_000;
 const FILTERS = ["all", "open", "closed"] as const;
 type Filter = (typeof FILTERS)[number];
+
+/** Manual-refresh only: no interval polling. Data loads once on mount; the
+ *  ↻ button re-fetches. Backend cache (5 min) still applies server-side. */
+function useManualLoad<T>(url: string) {
+  const [resp, setResp] = useState<T | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      try {
+        const r = await fetchJSON<T>(url);
+        if (!cancelled) {
+          setResp(r);
+          setErr(null);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url, nonce]);
+  return {
+    resp, err, busy,
+    refresh: () => setNonce((n) => n + 1),
+  };
+}
 
 function ago(iso: string): string {
   const t = Date.parse(iso);
@@ -41,43 +73,14 @@ function shortRepo(repo: string): string {
   return idx >= 0 ? repo.slice(idx + 1) : repo;
 }
 
-/** Recent PR reviews by aziz-yoco across org repos. Fetches its own
- *  plugin-scoped route (60-120s cadence) instead of the shared 10s loop —
- *  review data is slow-moving and the backend caches gh search 5 min. */
+/** Recent PR reviews by aziz-yoco across org repos. Manual refresh only —
+ *  review data is slow-moving and the backend caches gh search 5 min, so
+ *  auto-polling adds nothing; the ↻ button fetches on demand. */
 export function GhReviewsWidget() {
-  const [resp, setResp] = useState<GhReviewsResp | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const r = await fetchJSON<GhReviewsResp>(
-          "/api/plugins/home-dashboard/gh-reviews",
-        );
-        if (!cancelled) {
-          setResp(r);
-          setErr(null);
-        }
-      } catch (e) {
-        if (!cancelled) setErr(String(e));
-      }
-    };
-    load();
-    const t = setInterval(load, POLL_MS);
-    // Chrome throttles/freezes timers in background tabs, so interval ticks
-    // are missed while hidden — catch up the moment the tab is visible again.
-    const onVisible = () => {
-      if (!document.hidden) load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
+  const { resp, err, busy, refresh } = useManualLoad<GhReviewsResp>(
+    "/api/plugins/home-dashboard/gh-reviews",
+  );
 
   const reviews = (resp?.reviews ?? [])
     .filter((r) => (filter === "all" ? true : r.state === filter))
@@ -92,10 +95,22 @@ export function GhReviewsWidget() {
     <div className="wd-ghreviews" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span className="wd-title" style={{ fontWeight: 700 }}>Reviews</span>
-        <span style={{ fontSize: 10, opacity: 0.65 }}>
+        <span style={{ fontSize: 10, opacity: 0.65, flex: 1, minWidth: 0 }}>
           {resp?.stale ? "stale" : resp?.cached ? `cache ${resp.age_s ?? "?"}s` : "live"}
           {err ? ` · ${err.slice(0, 40)}` : ""}
         </span>
+        <button
+          onClick={refresh}
+          disabled={busy}
+          title="Refresh"
+          style={{
+            flex: "0 0 auto", border: "none", background: "transparent", cursor: "pointer",
+            padding: "0 2px", fontSize: 11, lineHeight: "14px", opacity: busy ? 0.4 : 0.7,
+            color: "inherit", fontFamily: "inherit",
+          }}
+        >
+          {busy ? "…" : "↻"}
+        </button>
       </div>
       {resp && !resp.ok && !resp.reviews.length ? (
         <div className="wd-empty" style={{ fontSize: 11, opacity: 0.7, marginTop: 6 }}>
